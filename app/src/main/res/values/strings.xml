@@ -1,0 +1,3 @@
+<resources>
+    <string name="service_desc">Shows a floating touchpad that moves a virtual cursor and performs taps, scrolls and system actions for you.</string>
+</resources>
