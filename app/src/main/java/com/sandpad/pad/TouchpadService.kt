@@ -45,13 +45,15 @@ class TouchpadService : AccessibilityService() {
     private fun speed() = prefs.getInt("speed", 18) / 10f
 
     private fun lp(w: Int, h: Int, touchable: Boolean): WindowManager.LayoutParams {
-        val f = WindowManager.LayoutParams
-        return WindowManager.LayoutParams(
-            w, h, f.TYPE_ACCESSIBILITY_OVERLAY,
-            f.FLAG_NOT_FOCUSABLE or f.FLAG_LAYOUT_NO_LIMITS or f.FLAG_LAYOUT_IN_SCREEN or
-                (if (touchable) 0 else f.FLAG_NOT_TOUCHABLE),
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        if (!touchable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        val params = WindowManager.LayoutParams(
+            w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, flags, PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.TOP or Gravity.START
+        return params
     }
 
     private fun shape(color: Int, r: Int, stroke: Int = 0) = GradientDrawable().apply {
