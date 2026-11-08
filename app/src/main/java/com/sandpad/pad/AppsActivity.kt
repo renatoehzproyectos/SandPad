@@ -3,6 +3,7 @@ package com.sandpad.pad
 import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -23,6 +24,16 @@ import android.widget.TextView
 /** Search all apps, pin favourites. In launch mode (from the pad menu) tapping an app opens it. */
 class AppsActivity : Activity() {
     class App(val pkg: String, val label: String, val icon: Drawable)
+
+    companion object {
+        fun load(pm: PackageManager): List<App> {
+            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            return pm.queryIntentActivities(q, 0)
+                .map { App(it.activityInfo.packageName, it.loadLabel(pm).toString(), it.loadIcon(pm)) }
+                .distinctBy { it.pkg }
+                .sortedBy { it.label.lowercase() }
+        }
+    }
 
     private val sand = Color.parseColor("#f0e0d0")
     private val sand2 = Color.parseColor("#e7ceb9")
@@ -50,12 +61,7 @@ class AppsActivity : Activity() {
         super.onCreate(b)
         prefs = getSharedPreferences("sandpad", MODE_PRIVATE)
         launchMode = intent.getBooleanExtra("launch", false)
-        val pm = packageManager
-        val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        apps = pm.queryIntentActivities(q, 0)
-            .map { App(it.activityInfo.packageName, it.loadLabel(pm).toString(), it.loadIcon(pm)) }
-            .distinctBy { it.pkg }
-            .sortedBy { it.label.lowercase() }
+        apps = load(packageManager)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

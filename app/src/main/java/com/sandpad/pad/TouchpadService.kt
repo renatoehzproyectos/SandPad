@@ -28,6 +28,8 @@ class TouchpadService : AccessibilityService(), PadView.Host {
     private lateinit var bubble: TextView
     private lateinit var padLp: WindowManager.LayoutParams
     private lateinit var bubbleLp: WindowManager.LayoutParams
+    private lateinit var cursorLp: WindowManager.LayoutParams
+    private lateinit var launcher: LauncherPanel
     private var cx = 0f
     private var cy = 0f
     private var sCx = 0f
@@ -116,11 +118,13 @@ class TouchpadService : AccessibilityService(), PadView.Host {
     override fun onServiceConnected() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs = getSharedPreferences("sandpad", MODE_PRIVATE)
+        launcher = LauncherPanel(this, wm, prefs)
         refreshBounds()
         cx = sw / 2f; cy = sh / 4f
 
         cursorView = CursorView(this)
-        wm.addView(cursorView, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, false))
+        cursorLp = lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, false)
+        wm.addView(cursorView, cursorLp)
         cursorView.setPos(cx, cy)
 
         pad = PadView(this, this)
@@ -233,21 +237,41 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         applyWindow()
         when (i) {
             0 -> toggleSplit()
-            1 -> startActivity(Intent(this, AppsActivity::class.java).putExtra("launch", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            1 -> pad.post {
+                if (launcher.isShown()) launcher.hide()
+                else { launcher.show(sw, sh, padY, padY + padPx()); restack() }
+            }
             else -> Toast.makeText(this, "Menu slot ${i + 1} is free", Toast.LENGTH_SHORT).show()
         }
     }
 
-    /** Current app goes on top, SandPad's plain #e7ceb9 screen fills the bottom half. Press again to leave split screen. */
+    /** Re-adds the cursor and pad so they always sit above the launcher panel. */
+    private fun restack() {
+        try { wm.removeView(cursorView) } catch (_: Exception) {}
+        wm.addView(cursorView, cursorLp)
+        if (minimized) {
+            try { wm.removeView(bubble) } catch (_: Exception) {}
+            wm.addView(bubble, bubbleLp)
+        } else {
+            try { wm.removeView(pad) } catch (_: Exception) {}
+            wm.addView(pad, padLp)
+        }
+    }
+
+    /** Current app on top, SandPad's plain #e7ceb9 screen below. Press again to leave split screen. */
     private fun toggleSplit() {
         val existing = SplitActivity.instance
-        performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+        val ok = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
         if (existing != null) { existing.finish(); return }
+        if (!ok) {
+            Toast.makeText(this, "Your phone refused the split screen command", Toast.LENGTH_LONG).show()
+            return
+        }
         Handler(Looper.getMainLooper()).postDelayed({
             val i = Intent(this, SplitActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             startActivity(i)
-        }, 700)
+        }, 1000)
     }
 
     private fun gesture(x1: Float, y1: Float, x2: Float, y2: Float, dur: Long) {
@@ -265,6 +289,7 @@ class TouchpadService : AccessibilityService(), PadView.Host {
 
     override fun onDestroy() {
         prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
+        if (::launcher.isInitialized) launcher.hide()
         try { wm.removeView(cursorView) } catch (_: Exception) {}
         try { wm.removeView(pad) } catch (_: Exception) {}
         try { wm.removeView(bubble) } catch (_: Exception) {}
