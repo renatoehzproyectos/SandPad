@@ -3,6 +3,7 @@ package com.sandpad.pad
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -36,6 +37,7 @@ class TouchpadService : AccessibilityService(), PadView.Host {
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         pad.alpha = alpha()
+        if (key == "layout") pad.reload()
         if (key == "size") {
             val s = dp(prefs.getInt("size", 200))
             padLp.width = s; padLp.height = s
@@ -60,11 +62,31 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         return params
     }
 
+    /** Screen size forced to the current orientation, so a portrait phone never gets landscape-shaped walls. */
+    private fun refreshBounds() {
+        val b = wm.maximumWindowMetrics.bounds
+        val dm = resources.displayMetrics
+        val longSide = maxOf(b.width(), b.height(), dm.widthPixels, dm.heightPixels)
+        val shortSide = maxOf(minOf(b.width(), b.height()), minOf(dm.widthPixels, dm.heightPixels))
+        val portrait = resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
+        if (portrait) { sw = shortSide; sh = longSide } else { sw = longSide; sh = shortSide }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!::pad.isInitialized) return
+        refreshBounds()
+        cx = cx.coerceIn(0f, sw - 1f); cy = cy.coerceIn(0f, sh - 1f)
+        cursorView.setPos(cx, cy)
+        padLp.x = padLp.x.coerceIn(0, maxOf(0, sw - padLp.width))
+        padLp.y = padLp.y.coerceIn(0, maxOf(0, sh - padLp.height))
+        if (!minimized) wm.updateViewLayout(pad, padLp)
+    }
+
     override fun onServiceConnected() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs = getSharedPreferences("sandpad", MODE_PRIVATE)
-        val b = wm.maximumWindowMetrics.bounds
-        sw = b.width(); sh = b.height()
+        refreshBounds()
         cx = sw / 2f; cy = sh / 4f
 
         cursorView = CursorView(this)
@@ -117,6 +139,7 @@ class TouchpadService : AccessibilityService(), PadView.Host {
 
     // ---- PadView.Host ----
     override fun gain() = prefs.getInt("speed", 18) / 10f
+    override fun layout() = Ring.load(prefs)
     override fun isDragOn() = dragOn
     override fun toggleDrag() { dragOn = !dragOn; pad.invalidate() }
     override fun beginPad() { sCx = cx; sCy = cy }

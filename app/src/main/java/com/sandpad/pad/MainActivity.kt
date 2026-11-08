@@ -53,10 +53,15 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.BLACK) }
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
+        root.addView(Button(this).apply {
+            text = "Customize pad buttons"; setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(rust) }
+            setOnClickListener { startActivity(Intent(this@MainActivity, EditorActivity::class.java)) }
+        })
         slider("Cursor speed", "speed", 5, 40, 18)
         slider("Pad size (dp)", "size", 160, 300, 200)
         slider("Pad opacity %", "alpha", 30, 100, 95)
-        root.addView(text("Setup: Accessibility → Installed apps → SandPad → On.\nIf it is greyed out: App info → ⋮ → Allow restricted settings.\n\nCentre = touchpad: tap clicks, hold long-presses. Ring: arrows scroll (hold to repeat), ✥ then slide = drag, ≡ moves the pad, – collapses it to a bubble.", 13f, Color.DKGRAY).apply { setPadding(0, dp(24), 0, 0) })
+        root.addView(text("Setup: Accessibility → Installed apps → SandPad → On.\nIf it is greyed out: App info → ⋮ → Allow restricted settings.\n\nCentre = touchpad: tap clicks, hold long-presses. Ring buttons are fully customizable. Press ✥ then slide to drag or scroll. Drag the empty part of the ring to move the pad.", 13f, Color.DKGRAY).apply { setPadding(0, dp(24), 0, 0) })
         setContentView(ScrollView(this).apply { setBackgroundColor(sand); addView(root) })
     }
 

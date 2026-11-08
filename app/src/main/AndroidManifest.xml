@@ -10,6 +10,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".EditorActivity" android:exported="false" />
         <service
             android:name=".TouchpadService"
             android:exported="true"
