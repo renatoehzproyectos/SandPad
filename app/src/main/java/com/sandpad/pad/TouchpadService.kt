@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
@@ -16,6 +17,7 @@ import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.abs
@@ -46,6 +48,8 @@ class TouchpadService : AccessibilityService(), PadView.Host {
     private var minimized = false
     private var menuOn = false
     private var attached = false
+    private var lastApp: String? = null
+    private var homePkg: String? = null
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         pad.alpha = alpha()
@@ -119,6 +123,9 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs = getSharedPreferences("sandpad", MODE_PRIVATE)
         launcher = LauncherPanel(this, wm, prefs)
+        homePkg = packageManager.resolveActivity(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY
+        )?.activityInfo?.packageName
         refreshBounds()
         cx = sw / 2f; cy = sh / 4f
 
@@ -236,7 +243,7 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         menuOn = false
         applyWindow()
         when (i) {
-            0 -> toggleSplit()
+            0 -> startSplit()
             1 -> pad.post {
                 if (launcher.isShown()) launcher.hide()
                 else { launcher.show(sw, sh, padY, padY + padPx()); restack() }
@@ -258,20 +265,90 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         }
     }
 
-    /** Current app on top, SandPad's plain #e7ceb9 screen below. Press again to leave split screen. */
-    private fun toggleSplit() {
-        val existing = SplitActivity.instance
-        val ok = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
-        if (existing != null) { existing.finish(); return }
-        if (!ok) {
-            Toast.makeText(this, "Your phone refused the split screen command", Toast.LENGTH_LONG).show()
+    private fun say(t: String) { Toast.makeText(this, t, Toast.LENGTH_SHORT).show() }
+
+    private fun findNode(n: AccessibilityNodeInfo?, key: String): AccessibilityNodeInfo? {
+        if (n == null) return null
+        val t = ((n.text?.toString() ?: "") + " " + (n.contentDescription?.toString() ?: "")).lowercase()
+        if (t.contains(key) && n.packageName?.toString() != packageName) return n
+        for (i in 0 until n.childCount) {
+            val r = findNode(n.getChild(i), key)
+            if (r != null) return r
+        }
+        return null
+    }
+
+    private fun findAny(key: String): AccessibilityNodeInfo? {
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { roots.add(it) }
+        for (w in windows) { val r = w.root; if (r != null) roots.add(r) }
+        for (r in roots) { val n = findNode(r, key); if (n != null) return n }
+        return null
+    }
+
+    private fun clickUp(start: AccessibilityNodeInfo?): Boolean {
+        var c = start
+        var depth = 0
+        while (c != null && depth < 8) {
+            if (c.isClickable) return c.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            c = c.parent
+            depth++
+        }
+        return false
+    }
+
+    /** Looks for the colour screen's card in the system's "pick the second app" list and taps it. */
+    private fun pickColorCard(done: (Boolean) -> Unit) {
+        val h = Handler(Looper.getMainLooper())
+        var tries = 0
+        val r = object : Runnable {
+            override fun run() {
+                val n = findAny("sandpad")
+                if (n != null && clickUp(n)) { done(true); return }
+                tries++
+                if (tries >= 8) done(false) else h.postDelayed(this, 450)
+            }
+        }
+        h.post(r)
+    }
+
+    /**
+     * Split screen using the phone's own split flow:
+     * 1) put the colour screen into recents, 2) come back to your app, 3) ask the system to split,
+     * 4) pick the colour screen as the second app. Each step shows a short message.
+     */
+    private fun startSplit() {
+        val si = SplitActivity.instance
+        if (si != null && si.isInMultiWindowMode) {
+            say("Leaving split screen")
+            performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
             return
         }
-        Handler(Looper.getMainLooper()).postDelayed({
-            val i = Intent(this, SplitActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            startActivity(i)
-        }, 1000)
+        val app = lastApp
+        if (app == null) { say("Open the app you want on top first, then press split"); return }
+        val h = Handler(Looper.getMainLooper())
+        say("Split 1/4: preparing the colour screen")
+        startActivity(Intent(this, SplitActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        h.postDelayed({
+            val li = packageManager.getLaunchIntentForPackage(app)
+            if (li != null) { li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(li) }
+        }, 900)
+        h.postDelayed({
+            val ok = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+            say("Split 2/4: system command " + (if (ok) "accepted" else "refused"))
+        }, 1900)
+        h.postDelayed({
+            val pkg = rootInActiveWindow?.packageName?.toString() ?: "unknown"
+            say("Split 3/4: screen shows $pkg")
+            pickColorCard { found ->
+                if (found) say("Split 4/4: colour screen picked")
+                else {
+                    say("Split 4/4: card not found, trying direct launch")
+                    startActivity(Intent(this, SplitActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT))
+                }
+            }
+        }, 3300)
     }
 
     private fun gesture(x1: Float, y1: Float, x2: Float, y2: Float, dur: Long) {
@@ -284,7 +361,13 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         )
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    /** Remembers the last normal app that was on screen: that is the one split screen will keep on top. */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val p = event.packageName?.toString() ?: return
+        if (p == packageName || p == homePkg) return
+        if (packageManager.getLaunchIntentForPackage(p) != null) lastApp = p
+    }
     override fun onInterrupt() {}
 
     override fun onDestroy() {
