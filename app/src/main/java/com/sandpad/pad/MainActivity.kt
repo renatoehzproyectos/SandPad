@@ -53,10 +53,10 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.BLACK) }
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
-        root.addView(text("Cursor speed (÷10)", 1f).apply { height = dp(18); textSize = 1f })
         slider("Cursor speed", "speed", 5, 40, 18)
-        slider("Pad opacity %", "alpha", 30, 100, 90)
-        root.addView(text("Setup: Accessibility → Installed apps → SandPad → On.\nIf it is greyed out: App info → ⋮ → Allow restricted settings.\n\nTap = click · hold = long-press · ✥ then slide = drag/swipe · ▲▼ scroll at the cursor.", 13f, Color.DKGRAY).apply { setPadding(0, dp(24), 0, 0) })
+        slider("Pad size (dp)", "size", 160, 300, 200)
+        slider("Pad opacity %", "alpha", 30, 100, 95)
+        root.addView(text("Setup: Accessibility → Installed apps → SandPad → On.\nIf it is greyed out: App info → ⋮ → Allow restricted settings.\n\nCentre = touchpad: tap clicks, hold long-presses. Ring: arrows scroll (hold to repeat), ✥ then slide = drag, ≡ moves the pad, – collapses it to a bubble.", 13f, Color.DKGRAY).apply { setPadding(0, dp(24), 0, 0) })
         setContentView(ScrollView(this).apply { setBackgroundColor(sand); addView(root) })
     }
 
