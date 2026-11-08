@@ -2,18 +2,22 @@ package com.sandpad.pad
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.TextView
+import android.widget.Toast
 import kotlin.math.abs
 
 class TouchpadService : AccessibilityService(), PadView.Host {
@@ -28,22 +32,23 @@ class TouchpadService : AccessibilityService(), PadView.Host {
     private var cy = 0f
     private var sCx = 0f
     private var sCy = 0f
+    private var padX = 0
+    private var padY = 0
     private var ox = 0
     private var oy = 0
+    private var mOffX = 0
+    private var mOffY = 0
     private var sw = 0
     private var sh = 0
     private var dragOn = false
     private var minimized = false
+    private var menuOn = false
+    private var attached = false
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         pad.alpha = alpha()
         if (key == "layout") pad.reload()
-        if (key == "size") {
-            val s = dp(prefs.getInt("size", 200))
-            padLp.width = s; padLp.height = s
-            padLp.x = padLp.x.coerceIn(0, maxOf(0, sw - s)); padLp.y = padLp.y.coerceIn(0, maxOf(0, sh - s))
-            if (!minimized) wm.updateViewLayout(pad, padLp)
-        }
+        if (key == "size") { clampPad(); applyWindow() }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -72,15 +77,40 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         if (portrait) { sw = shortSide; sh = longSide } else { sw = longSide; sh = shortSide }
     }
 
+    private fun clampPad() {
+        val s = padPx()
+        padX = padX.coerceIn(0, maxOf(0, sw - s))
+        padY = padY.coerceIn(0, maxOf(0, sh - s))
+    }
+
+    /** Pad window = just the pad, or the pad plus room above for the arc menu. */
+    private fun applyWindow() {
+        val size = padPx()
+        val d = resources.displayMetrics.density
+        if (menuOn) {
+            val w = PadView.menuWidth(size, d)
+            val extra = PadView.menuExtra(size, d)
+            padY = padY.coerceAtLeast(extra)
+            val wx = (padX + size / 2 - w / 2).coerceIn(0, maxOf(0, sw - w))
+            padLp.width = w; padLp.height = size + extra
+            padLp.x = wx; padLp.y = padY - extra
+            mOffX = padX - wx; mOffY = extra
+        } else {
+            padLp.width = size; padLp.height = size
+            padLp.x = padX; padLp.y = padY
+            mOffX = 0; mOffY = 0
+        }
+        if (attached && !minimized) wm.updateViewLayout(pad, padLp)
+        if (attached) pad.invalidate()
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        if (!::pad.isInitialized) return
+        if (!attached) return
         refreshBounds()
         cx = cx.coerceIn(0f, sw - 1f); cy = cy.coerceIn(0f, sh - 1f)
         cursorView.setPos(cx, cy)
-        padLp.x = padLp.x.coerceIn(0, maxOf(0, sw - padLp.width))
-        padLp.y = padLp.y.coerceIn(0, maxOf(0, sh - padLp.height))
-        if (!minimized) wm.updateViewLayout(pad, padLp)
+        clampPad(); applyWindow()
     }
 
     override fun onServiceConnected() {
@@ -93,12 +123,11 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         wm.addView(cursorView, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, false))
         cursorView.setPos(cx, cy)
 
-        val size = dp(prefs.getInt("size", 200))
         pad = PadView(this, this)
         pad.alpha = alpha()
-        padLp = lp(size, size, true)
-        padLp.x = prefs.getInt("x", dp(40)).coerceIn(0, maxOf(0, sw - size))
-        padLp.y = prefs.getInt("y", dp(90)).coerceIn(0, maxOf(0, sh - size))
+        padLp = lp(padPx(), padPx(), true)
+        padX = prefs.getInt("x", dp(40)); padY = prefs.getInt("y", dp(90))
+        clampPad(); applyWindow()
 
         val bs = dp(50)
         bubble = TextView(this).apply {
@@ -127,6 +156,7 @@ class TouchpadService : AccessibilityService(), PadView.Host {
             true
         }
         wm.addView(pad, padLp)
+        attached = true
         prefs.registerOnSharedPreferenceChangeListener(prefListener)
     }
 
@@ -138,8 +168,12 @@ class TouchpadService : AccessibilityService(), PadView.Host {
     }
 
     // ---- PadView.Host ----
-    override fun gain() = prefs.getInt("speed", 18) / 10f
     override fun layout() = Ring.load(prefs)
+    override fun gain() = prefs.getInt("speed", 12) / 10f
+    override fun padPx() = dp(prefs.getInt("size", 230))
+    override fun menuOpen() = menuOn
+    override fun offX() = mOffX
+    override fun offY() = mOffY
     override fun isDragOn() = dragOn
     override fun toggleDrag() { dragOn = !dragOn; pad.invalidate() }
     override fun beginPad() { sCx = cx; sCy = cy }
@@ -165,24 +199,56 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         val v = (cy - dv / 2).coerceIn(0f, sh - dv)
         val h = (cx - dh / 2).coerceIn(0f, sw - dh)
         when (dir) {
-            0 -> gesture(cx, v, cx, v + dv, 250)        // scroll up
-            2 -> gesture(cx, v + dv, cx, v, 250)        // scroll down
-            1 -> gesture(h + dh, cy, h, cy, 250)        // scroll right
-            3 -> gesture(h, cy, h + dh, cy, 250)        // scroll left
+            0 -> gesture(cx, v, cx, v + dv, 250)
+            2 -> gesture(cx, v + dv, cx, v, 250)
+            1 -> gesture(h + dh, cy, h, cy, 250)
+            3 -> gesture(h, cy, h + dh, cy, 250)
         }
     }
 
     override fun action(a: Int) { performGlobalAction(a) }
-    override fun minimize() { pad.post { setMinimized(true) } }
-    override fun beginMove() { ox = padLp.x; oy = padLp.y }
 
-    override fun moveWindow(dx: Float, dy: Float) {
-        padLp.x = (ox + dx).toInt().coerceIn(0, maxOf(0, sw - padLp.width))
-        padLp.y = (oy + dy).toInt().coerceIn(0, maxOf(0, sh - padLp.height))
-        wm.updateViewLayout(pad, padLp)
+    override fun minimize() {
+        pad.post {
+            if (menuOn) { menuOn = false; applyWindow() }
+            setMinimized(true)
+        }
     }
 
-    override fun savePosition() { prefs.edit().putInt("x", padLp.x).putInt("y", padLp.y).apply() }
+    override fun beginMove() { ox = padX; oy = padY }
+
+    override fun moveWindow(dx: Float, dy: Float) {
+        val s = padPx()
+        padX = (ox + dx).toInt().coerceIn(0, maxOf(0, sw - s))
+        padY = (oy + dy).toInt().coerceIn(0, maxOf(0, sh - s))
+        applyWindow()
+    }
+
+    override fun savePosition() { prefs.edit().putInt("x", padX).putInt("y", padY).apply() }
+
+    override fun toggleMenu() { menuOn = !menuOn; applyWindow() }
+
+    override fun menuAction(i: Int) {
+        menuOn = false
+        applyWindow()
+        when (i) {
+            0 -> toggleSplit()
+            1 -> startActivity(Intent(this, AppsActivity::class.java).putExtra("launch", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            else -> Toast.makeText(this, "Menu slot ${i + 1} is free", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Current app goes on top, SandPad's plain #e7ceb9 screen fills the bottom half. Press again to leave split screen. */
+    private fun toggleSplit() {
+        val existing = SplitActivity.instance
+        performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+        if (existing != null) { existing.finish(); return }
+        Handler(Looper.getMainLooper()).postDelayed({
+            val i = Intent(this, SplitActivity::class.java)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
+            startActivity(i)
+        }, 700)
+    }
 
     private fun gesture(x1: Float, y1: Float, x2: Float, y2: Float, dur: Long) {
         val p = Path()

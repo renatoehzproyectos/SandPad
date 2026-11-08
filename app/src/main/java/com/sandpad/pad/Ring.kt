@@ -25,28 +25,29 @@ data class Btn(val type: String, val start: Int, val span: Int) {
 
 object Ring {
     const val SLOTS = 12
-    val TYPES = listOf("back", "home", "recents", "drag", "min", "qs", "move", "up", "down", "left", "right")
+    val TYPES = listOf("window", "back", "home", "recents", "drag", "min", "qs", "move", "up", "down", "left", "right")
 
     fun label(t: String): String = when (t) {
-        "back" -> "◀"; "home" -> "●"; "recents" -> "▣"; "drag" -> "✥"; "min" -> "–"
+        "window" -> "▦"; "back" -> "◀"; "home" -> "●"; "recents" -> "▣"; "drag" -> "✥"; "min" -> "–"
         "qs" -> "⚙"; "move" -> "≡"; "up" -> "↑"; "down" -> "↓"; "left" -> "←"; "right" -> "→"
         else -> "?"
     }
 
     fun name(t: String): String = when (t) {
-        "back" -> "Back"; "home" -> "Home"; "recents" -> "Recents"; "drag" -> "Drag / scroll"
+        "window" -> "Window menu"; "back" -> "Back"; "home" -> "Home"; "recents" -> "Recents"; "drag" -> "Drag / scroll"
         "min" -> "Minimize"; "qs" -> "Quick settings"; "move" -> "Move pad"
         "up" -> "Scroll up"; "down" -> "Scroll down"; "left" -> "Scroll left"; "right" -> "Scroll right"
         else -> t
     }
 
     fun defaults(): List<Btn> = listOf(
-        Btn("min", 0, 1), Btn("drag", 1, 2), Btn("recents", 3, 2), Btn("home", 5, 2), Btn("back", 7, 2)
+        Btn("window", 0, 1), Btn("drag", 1, 2), Btn("min", 3, 1), Btn("back", 4, 2),
+        Btn("home", 6, 1), Btn("recents", 7, 2), Btn("qs", 9, 1), Btn("move", 10, 2)
     )
 
     fun load(p: SharedPreferences): List<Btn> {
         val s = p.getString("layout", null) ?: return defaults()
-        return try {
+        var list: List<Btn> = try {
             val a = JSONArray(s)
             (0 until a.length()).map { i ->
                 val o = a.getJSONObject(i)
@@ -55,6 +56,15 @@ object Ring {
         } catch (e: Exception) {
             defaults()
         }
+        // one-time: older saved layouts get the new window button in the free top slot
+        if (!p.getBoolean("win_added", false)) {
+            p.edit().putBoolean("win_added", true).apply()
+            if (list.none { it.type == "window" } && list.none { it.covers(0) }) {
+                list = list + Btn("window", 0, 1)
+                save(p, list)
+            }
+        }
+        return list
     }
 
     fun save(p: SharedPreferences, list: List<Btn>) {

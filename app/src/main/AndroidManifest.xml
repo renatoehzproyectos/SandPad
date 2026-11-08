@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <application
         android:label="SandPad"
         android:icon="@android:drawable/sym_def_app_icon"
@@ -11,6 +17,8 @@
             </intent-filter>
         </activity>
         <activity android:name=".EditorActivity" android:exported="false" />
+        <activity android:name=".AppsActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SplitActivity" android:exported="false" android:resizeableActivity="true" />
         <service
             android:name=".TouchpadService"
             android:exported="true"
