@@ -297,58 +297,60 @@ class TouchpadService : AccessibilityService(), PadView.Host {
         return false
     }
 
-    /** Looks for the colour screen's card in the system's "pick the second app" list and taps it. */
-    private fun pickColorCard(done: (Boolean) -> Unit) {
+    /** Tries to find and click an on-screen item whose text matches any key; calls done(true/false). */
+    private fun clickText(keys: Array<String>, tries: Int, gap: Long, done: (Boolean) -> Unit) {
         val h = Handler(Looper.getMainLooper())
-        var tries = 0
+        var n = 0
         val r = object : Runnable {
             override fun run() {
-                val n = findAny("sandpad")
-                if (n != null && clickUp(n)) { done(true); return }
-                tries++
-                if (tries >= 8) done(false) else h.postDelayed(this, 450)
+                for (k in keys) {
+                    val node = findAny(k)
+                    if (node != null && clickUp(node)) { done(true); return }
+                }
+                n++
+                if (n >= tries) done(false) else h.postDelayed(this, gap)
             }
         }
         h.post(r)
     }
 
+    private fun padTouchable(on: Boolean) {
+        if (!attached || minimized) return
+        val f = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        padLp.flags = if (on) padLp.flags and f.inv() else padLp.flags or f
+        wm.updateViewLayout(pad, padLp)
+    }
+
     /**
-     * Split screen using the phone's own split flow:
-     * 1) put the colour screen into recents, 2) come back to your app, 3) ask the system to split,
-     * 4) pick the colour screen as the second app. Each step shows a short message.
+     * The same steps you do by hand: Recents, tap the current app's icon, choose "Split screen",
+     * then open SandPad's plain colour screen as the second app. Press again to close it.
      */
     private fun startSplit() {
         val si = SplitActivity.instance
         if (si != null && si.isInMultiWindowMode) {
-            say("Leaving split screen")
-            performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+            say("Closing split screen")
+            si.finish()
             return
         }
-        val app = lastApp
-        if (app == null) { say("Open the app you want on top first, then press split"); return }
         val h = Handler(Looper.getMainLooper())
-        say("Split 1/4: preparing the colour screen")
-        startActivity(Intent(this, SplitActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        padTouchable(false)
+        say("Split 1/3: opening recents")
+        performGlobalAction(GLOBAL_ACTION_RECENTS)
         h.postDelayed({
-            val li = packageManager.getLaunchIntentForPackage(app)
-            if (li != null) { li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(li) }
-        }, 900)
+            // the icon above the centred (current app) card
+            gesture(sw * 0.494f, sh * 0.08f, sw * 0.494f, sh * 0.08f, 60)
+        }, 1100)
         h.postDelayed({
-            val ok = performGlobalAction(GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
-            say("Split 2/4: system command " + (if (ok) "accepted" else "refused"))
-        }, 1900)
-        h.postDelayed({
-            val pkg = rootInActiveWindow?.packageName?.toString() ?: "unknown"
-            say("Split 3/4: screen shows $pkg")
-            pickColorCard { found ->
-                if (found) say("Split 4/4: colour screen picked")
-                else {
-                    say("Split 4/4: card not found, trying direct launch")
-                    startActivity(Intent(this, SplitActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT))
-                }
+            say("Split 2/3: choosing the option")
+            clickText(arrayOf("pantalla dividida", "split screen", "split top", "dividir"), 5, 400) { found ->
+                if (!found) gesture(sw * 0.5f, sh * 0.235f, sw * 0.5f, sh * 0.235f, 60)
+                h.postDelayed({
+                    say("Split 3/3: opening the colour screen")
+                    startActivity(Intent(this, SplitActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    h.postDelayed({ padTouchable(true) }, 700)
+                }, 1200)
             }
-        }, 3300)
+        }, 1900)
     }
 
     private fun gesture(x1: Float, y1: Float, x2: Float, y2: Float, dur: Long) {
