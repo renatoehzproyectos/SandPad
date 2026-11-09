@@ -2,6 +2,7 @@ package com.sandpad.pad
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -10,6 +11,26 @@ import android.view.Gravity
 import android.widget.*
 
 class MainActivity : Activity() {
+    companion object { var splitInstance: MainActivity? = null }
+
+    private lateinit var normalView: android.view.View
+    private lateinit var colorView: android.view.View
+
+    /** In split screen the app shows a plain #e7ceb9 screen instead of its settings. */
+    private fun applyMode(multi: Boolean) {
+        if (multi) { setContentView(colorView); splitInstance = this }
+        else { setContentView(normalView); if (splitInstance === this) splitInstance = null }
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        applyMode(isInMultiWindowMode)
+    }
+
+    override fun onDestroy() {
+        if (splitInstance === this) splitInstance = null
+        super.onDestroy()
+    }
     private lateinit var status: TextView
     private val sand = Color.parseColor("#f0e0d0")
     private val rust = Color.parseColor("#c3592b")
@@ -67,7 +88,9 @@ class MainActivity : Activity() {
         slider("Pad size (dp)", "size", 160, 300, 230)
         slider("Pad opacity %", "alpha", 30, 100, 95)
         root.addView(text("Setup: Accessibility → Installed apps → SandPad → On.\nIf it is greyed out: App info → ⋮ → Allow restricted settings.\n\nCentre = touchpad: tap clicks, hold long-presses. Ring buttons are fully customizable. Press ✥ then slide to drag or scroll. Drag the empty part of the ring to move the pad. ▦ opens the window menu: split screen and fast launch.", 13f, Color.DKGRAY).apply { setPadding(0, dp(24), 0, 0) })
-        setContentView(ScrollView(this).apply { setBackgroundColor(sand); addView(root) })
+        normalView = ScrollView(this).apply { setBackgroundColor(sand); addView(root) }
+        colorView = android.view.View(this).apply { setBackgroundColor(Color.parseColor("#e7ceb9")) }
+        applyMode(isInMultiWindowMode)
     }
 
     override fun onResume() {

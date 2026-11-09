@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -326,10 +327,11 @@ class TouchpadService : AccessibilityService(), PadView.Host {
      * then open SandPad's plain colour screen as the second app. Press again to close it.
      */
     private fun startSplit() {
-        val si = SplitActivity.instance
-        if (si != null && si.isInMultiWindowMode) {
+        val bottom: android.app.Activity? =
+            SplitActivity.instance?.takeIf { it.isInMultiWindowMode } ?: MainActivity.splitInstance
+        if (bottom != null) {
             say("Closing split screen")
-            si.finish()
+            bottom.finish()
             return
         }
         val h = Handler(Looper.getMainLooper())
@@ -345,9 +347,18 @@ class TouchpadService : AccessibilityService(), PadView.Host {
             clickText(arrayOf("pantalla dividida", "split screen", "split top", "dividir"), 5, 400) { found ->
                 if (!found) gesture(sw * 0.5f, sh * 0.235f, sw * 0.5f, sh * 0.235f, 60)
                 h.postDelayed({
-                    say("Split 3/3: opening the colour screen")
-                    startActivity(Intent(this, SplitActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    h.postDelayed({ padTouchable(true) }, 700)
+                    say("Split 3/3: choosing the second app")
+                    val node = findAny("sandpad")
+                    if (node != null) {
+                        // tap SandPad's icon on the home screen, exactly like doing it by hand
+                        val r = Rect()
+                        node.getBoundsInScreen(r)
+                        gesture(r.exactCenterX(), r.exactCenterY(), r.exactCenterX(), r.exactCenterY(), 60)
+                    } else {
+                        startActivity(Intent(this, SplitActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT))
+                    }
+                    h.postDelayed({ padTouchable(true) }, 800)
                 }, 1200)
             }
         }, 1900)
